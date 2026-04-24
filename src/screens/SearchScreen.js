@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -14,6 +14,11 @@ import MovieListItem from '../components/MovieListItem';
 import { searchMovies } from '../services/tmdb';
 import { colors, radii, spacing } from '../theme';
 
+function formatYear(date) {
+  if (!date) return '—';
+  return String(date).slice(0, 4);
+}
+
 export default function SearchScreen({ navigation }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
@@ -24,6 +29,20 @@ export default function SearchScreen({ navigation }) {
   const [error, setError] = useState(null);
   const [hasSearched, setHasSearched] = useState(false);
   const lastQueryRef = useRef('');
+  const abortControllerRef = useRef(null);
+  const debounceTimerRef = useRef(null);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, []);
 
   const runSearch = useCallback(async (text, nextPage = 1) => {
     const trimmed = text.trim();
@@ -33,6 +52,12 @@ export default function SearchScreen({ navigation }) {
       setError(null);
       return;
     }
+    
+    // Cancel previous request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
     const isFirstPage = nextPage === 1;
     if (isFirstPage) {
       setLoading(true);
@@ -40,8 +65,16 @@ export default function SearchScreen({ navigation }) {
     } else {
       setLoadingMore(true);
     }
+    
+    // Create new AbortController for this request
+    abortControllerRef.current = new AbortController();
+    
     try {
-      const data = await searchMovies({ query: trimmed, page: nextPage });
+      const data = await searchMovies({ 
+        query: trimmed, 
+        page: nextPage,
+        signal: abortControllerRef.current.signal 
+      });
       lastQueryRef.current = trimmed;
       setHasSearched(true);
       setPage(data.page || nextPage);
@@ -50,6 +83,8 @@ export default function SearchScreen({ navigation }) {
         isFirstPage ? data.results || [] : [...prev, ...(data.results || [])]
       );
     } catch (err) {
+      // Ignore abort errors
+      if (err.name === 'AbortError') return;
       if (isFirstPage) setResults([]);
       setError(err?.message || 'Falha ao buscar filmes.');
     } finally {
@@ -60,7 +95,18 @@ export default function SearchScreen({ navigation }) {
 
   const handleSubmit = () => {
     Keyboard.dismiss();
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
     runSearch(query, 1);
+  };
+
+  const handleChangeText = (text) => {
+    setQuery(text);
+    // Debounce auto-search (optional feature)
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
   };
 
   const handleEndReached = () => {
@@ -111,13 +157,17 @@ export default function SearchScreen({ navigation }) {
       <View style={styles.searchBar}>
         <TextInput
           value={query}
-          onChangeText={setQuery}
+          onChangeText={handleChangeText}
           onSubmitEditing={handleSubmit}
           placeholder="Ex.: Interestelar"
           placeholderTextColor={colors.muted}
           style={styles.input}
           returnKeyType="search"
           autoCorrect={false}
+          maxLength={200}
+          accessible={true}
+          accessibilityLabel="Campo de busca de filmes"
+          accessibilityHint="Digite o nome do filme e toque em Buscar"
         />
         <Pressable
           onPress={handleSubmit}
@@ -126,6 +176,9 @@ export default function SearchScreen({ navigation }) {
             styles.button,
             (loading || pressed) && styles.buttonPressed,
           ]}
+          accessible={true}
+          accessibilityLabel="Buscar"
+          accessibilityRole="button"
         >
           <Text style={styles.buttonText}>Buscar</Text>
         </Pressable>
@@ -148,6 +201,8 @@ export default function SearchScreen({ navigation }) {
                   title: item.title,
                 })
               }
+              accessible={true}
+              accessibilityLabel={`${item.title}, ${formatYear(item.release_date)}`}
             />
           )}
           contentContainerStyle={

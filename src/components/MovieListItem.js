@@ -10,13 +10,22 @@ function formatYear(date) {
 
 export default function MovieListItem({ movie, onPress }) {
   const poster = posterUrl(movie.poster_path, 'w185');
+  const [imageError, setImageError] = React.useState(false);
+  
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+      accessible={true}
+      accessibilityRole="button"
+      accessibilityLabel={`${movie.title}, ${formatYear(movie.release_date)}`}
     >
-      {poster ? (
-        <Image source={{ uri: poster }} style={styles.poster} />
+      {poster && !imageError ? (
+        <Image 
+          source={{ uri: poster }} 
+          style={styles.poster}
+          onError={() => setImageError(true)}
+        />
       ) : (
         <View style={[styles.poster, styles.posterFallback]}>
           <Text style={styles.posterFallbackText}>Sem{'\n'}imagem</Text>

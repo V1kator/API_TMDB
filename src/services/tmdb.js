@@ -12,10 +12,14 @@ function getApiKey() {
       'TMDB API key não encontrada. Defina expo.extra.tmdbApiKey em app.json.'
     );
   }
+  // Validate API key format (32 hex characters)
+  if (!/^[a-f0-9]{32}$/i.test(key)) {
+    throw new Error('TMDB API key inválida. Verifique o formato da chave.');
+  }
   return key;
 }
 
-async function request(path, params = {}) {
+async function request(path, params = {}, signal) {
   const url = new URL(`${API_BASE}${path}`);
   url.searchParams.set('api_key', getApiKey());
   url.searchParams.set('language', 'pt-BR');
@@ -25,7 +29,10 @@ async function request(path, params = {}) {
     }
   }
 
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), {
+    signal,
+    timeout: 10000, // 10 second timeout
+  });
   if (!res.ok) {
     let message = `Erro ${res.status} ao consultar TMDB`;
     try {
@@ -34,19 +41,34 @@ async function request(path, params = {}) {
     } catch (_) {}
     throw new Error(message);
   }
-  return res.json();
+  
+  let data;
+  try {
+    data = await res.json();
+  } catch (err) {
+    throw new Error('Erro ao processar resposta do servidor');
+  }
+  return data;
 }
 
-export function searchMovies({ query, page = 1 }) {
+export function searchMovies({ query, page = 1, signal }) {
   const trimmed = (query || '').trim();
   if (!trimmed) {
     return Promise.resolve({ page: 1, results: [], total_pages: 0, total_results: 0 });
   }
-  return request('/search/movie', { query: trimmed, page, include_adult: false });
+  // Sanitize input: remove special characters that could cause issues
+  const sanitized = trimmed.replace(/[<>]/g, '');
+  if (sanitized.length > 200) {
+    throw new Error('Consulta muito longa. Use menos de 200 caracteres.');
+  }
+  return request('/search/movie', { query: sanitized, page, include_adult: false }, signal);
 }
 
-export function getMovieDetails(movieId) {
-  return request(`/movie/${movieId}`, { append_to_response: 'credits' });
+export function getMovieDetails(movieId, signal) {
+  if (!movieId || isNaN(movieId)) {
+    throw new Error('ID do filme inválido');
+  }
+  return request(`/movie/${movieId}`, { append_to_response: 'credits' }, signal);
 }
 
 export function posterUrl(path, size = 'w342') {

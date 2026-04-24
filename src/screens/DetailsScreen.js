@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -27,19 +27,47 @@ function formatDate(date) {
   return `${d}/${m}/${y}`;
 }
 
-export default function DetailsScreen({ route }) {
+export default function DetailsScreen({ route, navigation }) {
+  // Validate route params
+  if (!route?.params?.movieId) {
+    return (
+      <View style={[styles.container, styles.center]}>
+        <Text style={styles.errorTitle}>Erro</Text>
+        <Text style={styles.errorText}>ID do filme não fornecido</Text>
+        <Pressable
+          onPress={() => navigation.goBack()}
+          style={({ pressed }) => [styles.retry, pressed && styles.retryPressed]}
+        >
+          <Text style={styles.retryText}>Voltar</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
   const { movieId } = route.params;
   const [movie, setMovie] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const abortControllerRef = useRef(null);
 
   const load = React.useCallback(async () => {
     setLoading(true);
     setError(null);
+    
+    // Cancel previous request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    // Create new AbortController
+    abortControllerRef.current = new AbortController();
+    
     try {
-      const data = await getMovieDetails(movieId);
+      const data = await getMovieDetails(movieId, abortControllerRef.current.signal);
       setMovie(data);
     } catch (err) {
+      // Ignore abort errors
+      if (err.name === 'AbortError') return;
       setError(err?.message || 'Não foi possível carregar os detalhes.');
     } finally {
       setLoading(false);
@@ -48,6 +76,13 @@ export default function DetailsScreen({ route }) {
 
   useEffect(() => {
     load();
+    
+    // Cleanup on unmount
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, [load]);
 
   if (loading) {
@@ -83,24 +118,39 @@ export default function DetailsScreen({ route }) {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {backdrop && (
-        <Image source={{ uri: backdrop }} style={styles.backdrop} resizeMode="cover" />
+        <Image 
+          source={{ uri: backdrop }} 
+          style={styles.backdrop} 
+          resizeMode="cover"
+          onError={(e) => console.warn('Backdrop load error:', e.nativeEvent.error)}
+          accessible={true}
+          accessibilityLabel="Imagem de fundo do filme"
+        />
       )}
       <View style={styles.header}>
         {poster ? (
-          <Image source={{ uri: poster }} style={styles.poster} />
+          <Image 
+            source={{ uri: poster }} 
+            style={styles.poster}
+            onError={(e) => console.warn('Poster load error:', e.nativeEvent.error)}
+            accessible={true}
+            accessibilityLabel={`Pôster de ${movie.title}`}
+          />
         ) : (
           <View style={[styles.poster, styles.posterFallback]}>
             <Text style={styles.posterFallbackText}>Sem imagem</Text>
           </View>
         )}
         <View style={styles.headerInfo}>
-          <Text style={styles.title}>{movie.title}</Text>
+          <Text style={styles.title} accessible={true} accessibilityRole="header">
+            {movie.title}
+          </Text>
           {movie.tagline ? (
             <Text style={styles.tagline}>{movie.tagline}</Text>
           ) : null}
           <View style={styles.metaRow}>
             {typeof movie.vote_average === 'number' && movie.vote_average > 0 ? (
-              <Text style={styles.rating}>
+              <Text style={styles.rating} accessible={true} accessibilityLabel={`Avaliação ${movie.vote_average.toFixed(1)} de 10`}>
                 ★ {movie.vote_average.toFixed(1)}
                 <Text style={styles.meta}> ({movie.vote_count || 0})</Text>
               </Text>
@@ -112,7 +162,9 @@ export default function DetailsScreen({ route }) {
         </View>
       </View>
 
-      <Text style={styles.sectionTitle}>Sinopse</Text>
+      <Text style={styles.sectionTitle} accessible={true} accessibilityRole="header">
+        Sinopse
+      </Text>
       <Text style={styles.overview}>
         {movie.overview || 'Sinopse não disponível.'}
       </Text>
