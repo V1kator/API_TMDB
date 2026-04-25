@@ -22,7 +22,7 @@
       "favicon": "./assets/favicon.png"
     },
     "extra": {
-      "tmdbApiKey": "${TMDB_API_KEY}"
+      "tmdbApiKey": "placeholder-key-use-env-file"
     }
   }
 }
